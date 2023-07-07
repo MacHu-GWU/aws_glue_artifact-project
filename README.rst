@@ -52,9 +52,9 @@ Welcome to ``aws_glue_artifact`` Documentation
 ==============================================================================
 A lot of serverless AWS Service supports versioning and alias for deployment. It made the blue / green deployment, canary deployment and rolling back super easy.
 
-- AWS Lambda Versioning and Alias: https://docs.aws.amazon.com/lambda/latest/dg/configuration-versions.html
-- AWS StepFunction Versioning and Alias: https://docs.aws.amazon.com/step-functions/latest/dg/auth-version-alias.html
-- AWS SageMaker Model Registry Versioning: https://docs.aws.amazon.com/sagemaker/latest/dg/model-registry.html
+- `AWS Lambda Versioning and Alias <https://docs.aws.amazon.com/lambda/latest/dg/configuration-versions.html>`_
+- `AWS StepFunction Versioning and Alias <https://docs.aws.amazon.com/step-functions/latest/dg/auth-version-alias.html>`_
+- `AWS SageMaker Model Registry Versioning <https://docs.aws.amazon.com/sagemaker/latest/dg/model-registry.html>`_
 
 However, AWS Glue does not support this feature. This library provides a way to manage AWS Glue versioning and alias so you can deploy AWS Glue Jobs with confident.
 
