@@ -5,6 +5,8 @@ from aws_glue_artifact import api
 
 def test():
     _ = api
+    _ = api.GluePythonLibArtifact
+    _ = api.GlueETLScriptArtifact
 
 
 if __name__ == "__main__":
