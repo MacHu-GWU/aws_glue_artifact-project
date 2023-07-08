@@ -158,11 +158,24 @@ class GluePythonLibArtifact(Base):
         self._common_post_init(suffix=".zip")
 
     @property
+    def dir_glue_build_temp(self) -> Path:
+        """
+        example: ``${dir_glue_build}/tmp/``
+        """
+        return self.dir_glue_build.joinpath("tmp")
+
+    @property
     def dir_glue_python_lib_build(self) -> Path:
-        return self.dir_glue_build.joinpath(self.dir_glue_python_lib.basename)
+        """
+        example: ``${dir_glue_build}/tmp/${glue_python_lib}/``
+        """
+        return self.dir_glue_build_temp.joinpath(self.dir_glue_python_lib.basename)
 
     @property
     def path_glue_python_lib_build_zip(self) -> Path:
+        """
+        example: ``${dir_glue_build}/${glue_python_lib}.zip``
+        """
         return self.dir_glue_build.joinpath(f"{self.dir_glue_python_lib.basename}.zip")
 
     def put_artifact(
@@ -182,7 +195,10 @@ class GluePythonLibArtifact(Base):
             dir_python_lib_source=self.dir_glue_python_lib,
             dir_python_lib_target=self.dir_glue_python_lib_build,
         )
-        self.dir_glue_python_lib_build.make_zip_archive(
+        self.dir_glue_build_temp.joinpath("aws-glue-artifact.txt").write_text(
+            "built by aws-glue-artifact: https://github.com/MacHu-GWU/aws_glue_artifact-project"
+        )
+        self.dir_glue_build_temp.make_zip_archive(
             dst=self.path_glue_python_lib_build_zip,
             include_dir=False,
         )
