@@ -12,7 +12,7 @@ from func_args import NOTHING
 from pathlib_mate import Path
 from s3pathlib import S3Path
 from boto_session_manager import BotoSesManager
-from versioned.api import Artifact, Repository, LATEST_VERSION
+from versioned.api import s3_only_backend
 
 from .vendor.build import build_python_lib
 from .vendor.hashes import hashes
@@ -20,16 +20,21 @@ from .vendor.hashes import hashes
 
 PT = T.Union[str, _Path, Path]
 
+LATEST_VERSION = s3_only_backend.LATEST_VERSION
+Artifact = s3_only_backend.Artifact
+Alias = s3_only_backend.Alias
+Repository = s3_only_backend.Repository
+
 
 @dataclasses.dataclass
 class Base:
     """
     Base class for AWS Glue artifact.
     """
+
     aws_region: str = dataclasses.field()
     s3_bucket: str = dataclasses.field()
     s3_prefix: str = dataclasses.field()
-    dynamodb_table_name: str = dataclasses.field()
     artifact_name: str = dataclasses.field()
     _repo: Repository = dataclasses.field(init=False)
 
@@ -38,7 +43,6 @@ class Base:
             aws_region=self.aws_region,
             s3_bucket=self.s3_bucket,
             s3_prefix=self.s3_prefix,
-            dynamodb_table_name=self.dynamodb_table_name,
             suffix=suffix,
         )
 
@@ -49,37 +53,194 @@ class Base:
         """
         return self._repo
 
-    def bootstrap(
+    def bootstrap(self, bsm: BotoSesManager):  # pragma: no cover
+        """
+        Create necessary backend resources for the artifact store.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        """
+        return self.repo.bootstrap(bsm=bsm)
+
+    def publish_artifact_version(
         self,
         bsm: BotoSesManager,
-        dynamodb_write_capacity_units: T.Optional[int] = None,
-        dynamodb_read_capacity_units: T.Optional[int] = None,
-    ):
+    ) -> Artifact:  # pragma: no cover
         """
-        Create the required S3 bucket and DynamoDB table for the artifact store backend.
+        Creates a version from the latest artifact. Use versions to create an
+        immutable snapshot of your latest artifact.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
         """
-        self.repo.bootstrap(
+        return self.repo.publish_artifact_version(bsm=bsm, name=self.artifact_name)
+
+    def list_artifact_versions(
+        self,
+        bsm: BotoSesManager,
+    ) -> T.List[Artifact]:  # pragma: no cover
+        """
+        Return a list of artifact versions. The latest version is always the first item.
+        And the newer version comes first.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        """
+        return self.repo.list_artifact_versions(bsm=bsm, name=self.artifact_name)
+
+    def get_artifact_version(
+        self,
+        bsm: BotoSesManager,
+        version: T.Optional[T.Union[int, str]] = None,
+    ) -> Artifact:  # pragma: no cover
+        """
+        Return the information about the artifact or artifact version.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param version: artifact version. If ``None``, return the latest version.
+        """
+        return self.repo.get_artifact_version(
             bsm=bsm,
-            dynamodb_write_capacity_units=dynamodb_write_capacity_units,
-            dynamodb_read_capacity_units=dynamodb_read_capacity_units,
+            name=self.artifact_name,
+            version=version,
         )
 
     def get_artifact_s3path(
         self,
-        version: str = LATEST_VERSION,
-    ) -> S3Path:
+        bsm: BotoSesManager,
+        version: T.Optional[T.Union[int, str]] = None,
+    ) -> S3Path:  # pragma: no cover
         """
         Get the S3 path of the versioned artifact.
 
-        :param version: version of the artifact. Default to "LATEST".
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param version: artifact version. If ``None``, return the latest version.
         """
-        return self.repo.get_artifact_s3path(name=self.artifact_name, version=version)
+        return self.repo.get_artifact_version(
+            bsm=bsm,
+            name=self.artifact_name,
+            version=version,
+        ).s3path
 
-    def publish_artifact_version(self):
+    def get_latest_published_artifact_version_number(
+        self,
+        bsm: BotoSesManager,
+    ) -> int:  # pragma: no cover
         """
-        Publish the latest artifact as an immutable version.
+        Return the latest published artifact version number,
+        if no version has been published yet, return 0.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
         """
-        return self.repo.publish_artifact_version(self.artifact_name)
+        return self.repo.get_latest_published_artifact_version_number(
+            bsm=bsm,
+            name=self.artifact_name,
+        )
+
+    def delete_artifact_version(
+        self,
+        bsm: BotoSesManager,
+        version: T.Union[int, str],
+    ):  # pragma: no cover
+        """
+        Deletes a specific version of artifact.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param version: artifact version.
+        """
+        return self.repo.delete_artifact_version(
+            bsm=bsm,
+            name=self.artifact_name,
+            version=version,
+        )
+
+    def purge_all(
+        self,
+        bsm: BotoSesManager,
+    ):  # pragma: no cover
+        """
+        Completely delete all artifacts and aliases.
+        This operation is irreversible. It will remove all related S3 artifacts.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        """
+        return self.repo.purge_artifact(bsm=bsm, name=self.artifact_name)
+
+    def put_alias(
+        self,
+        bsm: BotoSesManager,
+        alias: str,
+        version: T.Optional[T.Union[int, str]] = None,
+        secondary_version: T.Optional[T.Union[int, str]] = None,
+        secondary_version_weight: T.Optional[int] = None,
+    ) -> Alias:  # pragma: no cover
+        """
+        Creates an alias for an artifact version. If ``version`` is not specified,
+        the latest version is used.
+
+        You can also map an alias to split invocation requests between two versions.
+        Use the ``secondary_version`` and ``secondary_version_weight`` to specify
+        a second version and the percentage of invocation requests that it receives.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param alias: alias name. alias name cannot have hyphen.
+        :param version: artifact version. If ``None``, the latest version is used.
+        :param secondary_version: see above.
+        :param secondary_version_weight: an integer between 0 ~ 100.
+        """
+        return self.repo.put_alias(
+            bsm=bsm,
+            name=self.artifact_name,
+            alias=alias,
+            version=version,
+            secondary_version=secondary_version,
+            secondary_version_weight=secondary_version_weight,
+        )
+
+    def get_alias(
+        self,
+        bsm: BotoSesManager,
+        alias: str,
+    ) -> Alias:  # pragma: no cover
+        """
+        Return details about the alias.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param alias: alias name. alias name cannot have hyphen.
+        """
+        return self.repo.get_alias(
+            bsm=bsm,
+            name=self.artifact_name,
+            alias=alias,
+        )
+
+    def list_alias(
+        self,
+        bsm: BotoSesManager,
+    ) -> T.List[Alias]:  # pragma: no cover
+        """
+        Returns a list of aliases for an artifact.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        """
+        return self.repo.list_aliases(
+            bsm=bsm,
+            name=self.artifact_name,
+        )
+
+    def delete_alias(
+        self,
+        bsm: BotoSesManager,
+        alias: str,
+    ):  # pragma: no cover
+        """
+        Deletes an alias.
+
+        :param bsm: ``boto_session_manager.BotoSesManager`` object.
+        :param alias: alias name. alias name cannot have hyphen.
+        """
+        return self.repo.delete_alias(
+            bsm=bsm,
+            name=self.artifact_name,
+            alias=alias,
+        )
 
 
 @dataclasses.dataclass
@@ -105,6 +266,7 @@ class GlueETLScriptArtifact(Base):
 
     def put_artifact(
         self,
+        bsm: BotoSesManager,
         metadata: T.Dict[str, str] = NOTHING,
         tags: T.Dict[str, str] = NOTHING,
     ) -> Artifact:
@@ -122,6 +284,7 @@ class GlueETLScriptArtifact(Base):
         if metadata is not NOTHING:
             final_metadata.update(metadata)
         return self.repo.put_artifact(
+            bsm=bsm,
             name=self.artifact_name,
             content=content,
             content_type="text/plain",
@@ -180,6 +343,7 @@ class GluePythonLibArtifact(Base):
 
     def put_artifact(
         self,
+        bsm: BotoSesManager,
         metadata: T.Dict[str, str] = NOTHING,
         tags: T.Dict[str, str] = NOTHING,
     ) -> Artifact:
@@ -209,6 +373,7 @@ class GluePythonLibArtifact(Base):
         if metadata is not NOTHING:
             final_metadata.update(metadata)
         return self.repo.put_artifact(
+            bsm=bsm,
             name=self.artifact_name,
             content=self.path_glue_python_lib_build_zip.read_bytes(),
             content_type="application/zip",
